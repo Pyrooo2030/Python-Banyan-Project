@@ -12,9 +12,9 @@ from database import (
 
 def handle_action(username, role, action, data):
     if action == "login":
-        return f"Logged in as {username} ({role})."
+        return f"Now Logged in as {username} ({role})."
 
-    if action == "browse":
+    if action == "Browse":
         return browse_items()
 
     if action == "list_item":
@@ -26,7 +26,7 @@ def handle_action(username, role, action, data):
         if not isinstance(name, str) or not name.strip():
             return "Enter an item name."
         if type(price) is not int or not 0 <= price <= 2_147_483_647:
-            return "Enter a valid whole-peso starting price."
+            return "Enter a valid starting price."
 
         return create_listing(username, name.strip(), price)
 
