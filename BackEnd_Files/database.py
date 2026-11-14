@@ -57,3 +57,22 @@ def place_bid(auction_id, bidder, amount):
             (auction_id, bidder, amount)
         )
         return f"Accepted. {bidder} leads on {item_name} at {amount} pesos."
+
+def list_auctions():
+    with sqlite3.connect(DB_FILE) as db:
+        rows = db.execute("""
+            SELECT a.id, a.item_name,
+                   COALESCE(MAX(b.amount), a.starting_price)
+            FROM auctions AS a
+            LEFT JOIN bids AS b ON b.auction_id = a.id
+            GROUP BY a.id, a.item_name, a.starting_price
+            ORDER BY a.id
+        """).fetchall()
+
+    if not rows:
+        return "No items listed yet."
+
+    return "\n".join(
+        f"#{auction_id} | {name} | Current price: {price} pesos"
+        for auction_id, name, price in rows
+    )
