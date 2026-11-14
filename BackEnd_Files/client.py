@@ -42,7 +42,7 @@ class AuctionClient(BanyanBase):
 
     def show_menu(self):
         while True:
-            print("\n1 Browse | 2 Create listing | 3 Bid | 4 Monitor | 0 Exit")
+            print("\n1 Browse | 2 Create listing | 3 Bid | 4 Monitor | 5 Results | 0 Exit")
             choice = input("Choose: ").strip()
 
             try:
@@ -60,6 +60,9 @@ class AuctionClient(BanyanBase):
                     self.send_request("bid", {"auction_id": number, "amount": amount})
                 elif choice == "4":
                     self.send_request("monitor", {})
+                elif choice == "5":
+                    number = int(input("Auction number: "))
+                    self.send_request("result", {"auction_id": number})
                 else:
                     print("Choose a number from 0 to 4.")
                     continue
