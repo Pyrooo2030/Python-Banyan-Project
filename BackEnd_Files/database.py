@@ -144,7 +144,7 @@ def browse_items():
         """).fetchall()
 
     return "\n".join(
-        f"#{number} | {name} | {price} pesos"
+        f"#{number} | {name} | {price} Pesos"
         for number, name, price in rows
     ) or "No listings yet."
 
@@ -160,6 +160,6 @@ def monitor_transactions():
         """).fetchall()
 
     return "\n".join(
-        f"Bid #{bid_id} | Auction #{auction_id} {name} | {bidder} | {amount} pesos"
+        f"Bid #{bid_id} | Auction #{auction_id} {name} | {bidder} | {amount} Pesos"
         for bid_id, auction_id, name, bidder, amount in rows
     ) or "No accepted bids yet."
