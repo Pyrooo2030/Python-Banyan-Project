@@ -10,6 +10,28 @@ client = AuctionClient(back_plane_ip_address="10.215.206.48")
 client.set_subscriber_topic("auction.reply")
 
 bidder = input("Your name: ")
-amount = int(input("Your bid in whole pesos: "))
-client.publish_payload({"bidder": bidder, "amount": amount}, "auction.request")
+choice = input("1 = Browse items, 2 = Place a bid: ").strip()
+
+if choice == "1":
+    request = {"action": "list"}
+elif choice == "2":
+    try:
+        auction_id = int(input("Auction number: "))
+        bidder = input("Your name: ").strip()
+        amount = int(input("Bid in whole pesos: "))
+    except ValueError:
+        print("Enter whole numbers for the auction number and bid.")
+        raise SystemExit
+
+    request = {
+        "action": "bid",
+        "auction_id": auction_id,
+        "bidder": bidder,
+        "amount": amount
+    }
+else:
+    print("Choose 1 or 2.")
+    raise SystemExit
+
+client.publish_payload(request, "auction.request")
 client.receive_loop()
