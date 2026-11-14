@@ -35,7 +35,7 @@ class AuctionClient(BanyanBase):
         message = payload["message"]
         print("\n" + message)
 
-        if self.last_action == "login" and not message.startswith("Logged in as "):
+        if self.last_action == "login" and not message.startswith("Now Logged in as "):
             raise SystemExit
 
         self.show_menu()
@@ -72,6 +72,6 @@ class AuctionClient(BanyanBase):
 
 client = AuctionClient(back_plane_ip_address="10.215.206.48")
 client.username = input("Username: ").strip()
-client.key = getpass.getpass("Login key: ").strip()
+client.key = input("Login key: ").strip()
 client.send_request("login", {})
 client.receive_loop()
