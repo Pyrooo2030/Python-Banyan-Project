@@ -3,7 +3,10 @@ import hmac
 import json
 import time
 
+from database import auction_result
 from python_banyan.banyan_base import BanyanBase
+from threading import Thread
+from database import prepare_closing, close_due_auctions
 from database import (
     prepare_database, prepare_accounts, find_account,
     create_listing, browse_items, place_bid, monitor_transactions
@@ -48,6 +51,12 @@ def handle_action(username, role, action, data):
         if role != "admin":
             return "Denied. Only admins can monitor transactions."
         return monitor_transactions()
+
+    if action == "result":
+        number = data.get("auction_id")
+        if type(number) is not int or not 1 <= number <= 2_147_483_647:
+            return "Enter a valid auction number."
+        return auction_result(number)
 
     return "Unknown action."
 
@@ -96,10 +105,15 @@ class AuctionServer(BanyanBase):
                     )
 
         self.publish_payload({"message": message}, "auction.reply." + request_id)
-
+def watch_deadlines():
+    while True:
+        close_due_auctions()
+        time.sleep(1)
 
 prepare_database()
 prepare_accounts()
+prepare_closing()
+Thread(target=watch_deadlines, daemon=True).start()
 
 server = AuctionServer(back_plane_ip_address="10.215.206.48")
 server.recent_requests = {}
