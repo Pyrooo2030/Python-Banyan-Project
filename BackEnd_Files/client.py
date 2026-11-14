@@ -9,6 +9,7 @@ class AuctionClient(BanyanBase):
 client = AuctionClient(back_plane_ip_address="10.215.206.48")
 client.set_subscriber_topic("auction.reply")
 
-input("Press Enter to send a test message...")
-client.publish_payload({"message": "Hello from the bidder!"}, "auction.request")
+bidder = input("Your name: ")
+amount = int(input("Your bid in whole pesos: "))
+client.publish_payload({"bidder": bidder, "amount": amount}, "auction.request")
 client.receive_loop()
