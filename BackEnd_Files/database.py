@@ -1,4 +1,5 @@
 import sqlite3
+import time
 from pathlib import Path
 
 
@@ -32,6 +33,16 @@ def prepare_database():
 def place_bid(auction_id, bidder, amount):
     with sqlite3.connect(DB_FILE) as db:
         db.execute("BEGIN IMMEDIATE")
+        auction = db.execute("""
+            SELECT closed, closes_at FROM auctions WHERE id = ?
+        """, (auction_id,)).fetchone()
+
+        if auction is None:
+            return "Auction not found."
+
+        closed, closes_at = auction
+        if closed or (closes_at is not None and time.time() >= closes_at):
+            return "Bid rejected. This auction has ended."
 
         row = db.execute(
             "SELECT MAX(amount) FROM bids WHERE auction_id = ?",
@@ -124,13 +135,15 @@ def find_account(username):
 
 
 def create_listing(seller, item_name, starting_price):
+    closes_at = int(time.time()) + 60
+
     with sqlite3.connect(DB_FILE) as db:
         cursor = db.execute("""
-            INSERT INTO auctions (item_name, starting_price, seller)
-            VALUES (?, ?, ?)
-        """, (item_name, starting_price, seller))
+            INSERT INTO auctions (item_name, starting_price, seller, closes_at)
+            VALUES (?, ?, ?, ?)
+        """, (item_name, starting_price, seller, closes_at))
 
-        return f"Created auction #{cursor.lastrowid}: {item_name}."
+        return f"Created auction #{cursor.lastrowid}: {item_name}. Closes in 60 seconds."
 
 
 def browse_items():
@@ -163,3 +176,68 @@ def monitor_transactions():
         f"Bid #{bid_id} | Auction #{auction_id} {name} | {bidder} | {amount} Pesos"
         for bid_id, auction_id, name, bidder, amount in rows
     ) or "No accepted bids yet."
+
+def prepare_closing():
+    with sqlite3.connect(DB_FILE) as db:
+        columns = {col[1] for col in db.execute("PRAGMA table_info(auctions)")}
+
+        if "closes_at" not in columns:
+            db.execute("ALTER TABLE auctions ADD COLUMN closes_at INTEGER")
+        if "closed" not in columns:
+            db.execute("ALTER TABLE auctions ADD COLUMN closed INTEGER DEFAULT 0")
+        if "winner" not in columns:
+            db.execute("ALTER TABLE auctions ADD COLUMN winner TEXT")
+        if "winning_amount" not in columns:
+            db.execute("ALTER TABLE auctions ADD COLUMN winning_amount INTEGER")
+
+
+def close_due_auctions():
+
+    with sqlite3.connect(DB_FILE) as db:
+        db.execute("BEGIN IMMEDIATE")
+        due = db.execute("""
+            SELECT id FROM auctions
+            WHERE closed = 0 AND closes_at <= ?
+        """, (int(time.time()),)).fetchall()
+
+        for (auction_id,) in due:
+            top_bid = db.execute("""
+                SELECT bidder, amount FROM bids
+                WHERE auction_id = ?
+                ORDER BY amount DESC, id ASC
+                LIMIT 1
+            """, (auction_id,)).fetchone()
+
+            winner, amount = top_bid if top_bid else (None, None)
+            db.execute("""
+                UPDATE auctions
+                SET closed = 1, winner = ?, winning_amount = ?
+                WHERE id = ?
+            """, (winner, amount, auction_id))
+
+def auction_result(auction_id):
+    with sqlite3.connect(DB_FILE) as db:
+        row = db.execute("""
+            SELECT item_name, closes_at, closed, winner, winning_amount
+            FROM auctions
+            WHERE id = ?
+        """, (auction_id,)).fetchone()
+
+    if row is None:
+        return "Auction not found."
+
+    item_name, closes_at, closed, winner, amount = row
+
+    if closed:
+        if winner is None:
+            return f"{item_name} closed with no accepted bids."
+        return f"{item_name} closed. Winner: {winner} at {amount} pesos."
+
+    if closes_at is None:
+        return f"{item_name} is open. No deadline was set."
+
+    remaining = closes_at - int(time.time())
+    if remaining <= 0:
+        return f"Bidding has ended for {item_name}. The server is recording the result."
+
+    return f"{item_name} is open. {remaining} seconds remaining."
