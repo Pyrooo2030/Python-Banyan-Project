@@ -61,13 +61,21 @@ def place_bid(auction_id, bidder, amount):
         current_price = row[0] if row[0] is not None else starting_price
 
         if amount <= current_price:
-            return f"Bid too low. Current price is {current_price} pesos."
+            return {
+                "accepted": False,
+                "message": f"Bid too low. Current price is {current_price} pesos."
+            }
 
         db.execute(
             "INSERT INTO bids (auction_id, bidder, amount) VALUES (?, ?, ?)",
             (auction_id, bidder, amount)
         )
-        return f"Accepted. {bidder} leads on {item_name} at {amount} pesos."
+        return {
+            "accepted": True,
+            "auction_id": auction_id,
+            "amount": amount,
+            "message": f"Accepted. {bidder} leads on {item_name} at {amount} pesos."
+        }
 
 def list_auctions():
     with sqlite3.connect(DB_FILE) as db:

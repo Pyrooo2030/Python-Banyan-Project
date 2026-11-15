@@ -49,7 +49,7 @@ class AuctionClient(BanyanBase):
                 if choice == "0":
                     raise SystemExit
                 if choice == "1":
-                    self.send_request("browse", {})
+                    self.send_request("Browse", {})
                 elif choice == "2":
                     name = input("Item name: ")
                     price = int(input("Starting price in pesos: "))
@@ -72,8 +72,8 @@ class AuctionClient(BanyanBase):
 
             return  # Wait for the server's reply before showing the menu again.
 
-
-client = AuctionClient(back_plane_ip_address="10.215.206.48")
+backplane_ip = input("Backplane IP: ").strip()
+client = AuctionClient(back_plane_ip_address=backplane_ip)
 client.username = input("Username: ").strip()
 client.key = input("Login key: ").strip()
 client.send_request("login", {})

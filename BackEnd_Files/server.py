@@ -45,7 +45,7 @@ def handle_action(username, role, action, data):
 
         result = place_bid(number, username, amount)
         # Supports either version of place_bid from our earlier steps.
-        return result["message"] if isinstance(result, dict) else result
+        return result
 
     if action == "monitor":
         if role != "admin":
@@ -104,6 +104,14 @@ class AuctionServer(BanyanBase):
                         username, role, request.get("action"), request["data"]
                     )
 
+        if isinstance(message, dict):
+            if message.get("accepted"):
+                self.publish_payload(
+                    {"event": "bid_accepted", **message},
+                    "auction.events"
+                )
+            message = message["message"]
+
         self.publish_payload({"message": message}, "auction.reply." + request_id)
 def watch_deadlines():
     while True:
@@ -116,6 +124,8 @@ prepare_closing()
 Thread(target=watch_deadlines, daemon=True).start()
 
 server = AuctionServer(back_plane_ip_address="10.215.206.48")
+backplane_ip = input("Backplane IP: ").strip()
+server = AuctionServer(back_plane_ip_address=backplane_ip)
 server.recent_requests = {}
 server.set_subscriber_topic("auction.request")
 print("Auction server ready.")
