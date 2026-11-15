@@ -3,7 +3,7 @@ import hmac
 import json
 import time
 
-from database import auction_result
+from database import all_results
 from python_banyan.banyan_base import BanyanBase
 from threading import Thread
 from database import prepare_closing, close_due_auctions
@@ -53,12 +53,9 @@ def handle_action(username, role, action, data):
         return monitor_transactions()
 
     if action == "result":
-        number = data.get("auction_id")
-        if type(number) is not int or not 1 <= number <= 2_147_483_647:
-            return "Enter a valid auction number."
-        return auction_result(number)
+        return all_results()
 
-    return "Unknown action."
+  
 
 
 class AuctionServer(BanyanBase):

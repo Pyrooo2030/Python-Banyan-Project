@@ -75,7 +75,7 @@ class AuctionClient(BanyanBase):
                     number = int(input("Auction number: "))
                     self.queue_request("result", {"auction_id": number})
                 else:
-                    print("Choose a number from 0 to 4.")
+                    print("Choose a number from 0 to 5.")
                     continue
             except ValueError:
                 print("Enter a whole number.")
