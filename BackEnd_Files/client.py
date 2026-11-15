@@ -5,7 +5,10 @@ import json
 import time
 import uuid
 
+
 from python_banyan.banyan_base import BanyanBase
+from queue import Queue, Empty
+from threading import Thread
 
 
 class AuctionClient(BanyanBase):
@@ -29,6 +32,9 @@ class AuctionClient(BanyanBase):
         )
 
     def incoming_message_processing(self, topic, payload):
+        if topic == "auction.events":
+            print(f"\n[LIVE] {payload['message']}", flush=True)
+            return
         if topic != self.reply_topic:
             return
 
@@ -38,7 +44,11 @@ class AuctionClient(BanyanBase):
         if self.last_action == "login" and not message.startswith("Now Logged in as "):
             raise SystemExit
 
-        self.show_menu()
+    
+        if self.last_action == "login":
+            self.set_subscriber_topic("auction.events")
+
+        Thread(target=self.show_menu, daemon=True).start()
 
     def show_menu(self):
         while True:
@@ -47,22 +57,23 @@ class AuctionClient(BanyanBase):
 
             try:
                 if choice == "0":
-                    raise SystemExit
+                    self.queue_request("exit", {})
+                    return
                 if choice == "1":
-                    self.send_request("Browse", {})
+                    self.queue_request("Browse", {})
                 elif choice == "2":
                     name = input("Item name: ")
                     price = int(input("Starting price in pesos: "))
-                    self.send_request("list_item", {"name": name, "price": price})
+                    self.queue_request("list_item", {"name": name, "price": price})
                 elif choice == "3":
                     number = int(input("Auction number: "))
                     amount = int(input("Bid in pesos: "))
-                    self.send_request("bid", {"auction_id": number, "amount": amount})
+                    self.queue_request("bid", {"auction_id": number, "amount": amount})
                 elif choice == "4":
-                    self.send_request("monitor", {})
+                    self.queue_request("monitor", {})
                 elif choice == "5":
                     number = int(input("Auction number: "))
-                    self.send_request("result", {"auction_id": number})
+                    self.queue_request("result", {"auction_id": number})
                 else:
                     print("Choose a number from 0 to 4.")
                     continue
@@ -71,9 +82,24 @@ class AuctionClient(BanyanBase):
                 continue
 
             return  # Wait for the server's reply before showing the menu again.
+    def queue_request(self, action, data):
+        self.menu_requests.put((action, data))
+
+    def process_menu_queue(self):
+        try:
+            action, data = self.menu_requests.get_nowait()
+        except Empty:
+            return
+
+        if action == "exit":
+            raise SystemExit
+
+        self.send_request(action, data)
 
 backplane_ip = input("Backplane IP: ").strip()
 client = AuctionClient(back_plane_ip_address=backplane_ip)
+client.menu_requests = Queue()
+client.receive_loop_idle_addition = client.process_menu_queue
 client.username = input("Username: ").strip()
 client.key = input("Login key: ").strip()
 client.send_request("login", {})

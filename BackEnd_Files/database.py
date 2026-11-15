@@ -200,7 +200,7 @@ def prepare_closing():
 
 
 def close_due_auctions():
-
+    events = []
     with sqlite3.connect(DB_FILE) as db:
         db.execute("BEGIN IMMEDIATE")
         due = db.execute("""
@@ -222,6 +222,21 @@ def close_due_auctions():
                 SET closed = 1, winner = ?, winning_amount = ?
                 WHERE id = ?
             """, (winner, amount, auction_id))
+            if winner is None:
+                message = f"Auction #{auction_id} closed with no bids."
+            else:
+                message = f"Auction #{auction_id} closed. {winner} won at {amount} pesos."
+
+            events.append({
+                "event": "closed",
+                "auction_id": auction_id,
+                "winner": winner,
+                "amount": amount,
+                "message": message
+            })
+
+    return events
+    
 
 def auction_result(auction_id):
     with sqlite3.connect(DB_FILE) as db:

@@ -113,20 +113,30 @@ class AuctionServer(BanyanBase):
             message = message["message"]
 
         self.publish_payload({"message": message}, "auction.reply." + request_id)
-def watch_deadlines():
-    while True:
-        close_due_auctions()
-        time.sleep(1)
-
 prepare_database()
 prepare_accounts()
 prepare_closing()
-Thread(target=watch_deadlines, daemon=True).start()
 
-server = AuctionServer(back_plane_ip_address="10.215.206.48")
 backplane_ip = input("Backplane IP: ").strip()
 server = AuctionServer(back_plane_ip_address=backplane_ip)
 server.recent_requests = {}
 server.set_subscriber_topic("auction.request")
+
+next_deadline_check = 0.0
+
+
+def check_deadlines():
+    global next_deadline_check
+
+    now = time.monotonic()
+    if now < next_deadline_check:
+        return
+
+    next_deadline_check = now + 1
+    for event in close_due_auctions():
+        server.publish_payload(event, "auction.events")
+
+
+server.receive_loop_idle_addition = check_deadlines
 print("Auction server ready.")
 server.receive_loop()
