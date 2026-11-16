@@ -3,22 +3,38 @@ import hmac
 import json
 import time
 
-from database import all_results
 from python_banyan.banyan_base import BanyanBase
-from threading import Thread
-from database import prepare_closing, close_due_auctions
+
 from database import (
-    prepare_database, prepare_accounts, find_account,
-    create_listing, browse_items, place_bid, monitor_transactions
+    all_results,
+    browse_items,
+    close_due_auctions,
+    create_listing,
+    find_account,
+    monitor_transactions,
+    place_bid,
+    prepare_accounts,
+    prepare_closing,
+    prepare_database,
 )
 
 
 def handle_action(username, role, action, data):
     if action == "login":
-        return f"Now Logged in as {username} ({role})."
+        return {
+            "message": f"Now Logged in as {username} ({role}).",
+            "username": username,
+            "role": role,
+        }
 
     if action == "Browse":
-        return browse_items()
+        result = browse_items()
+        for auction in result["auctions"]:
+            auction["can_bid"] = (
+                role in ("bidder", "seller")
+                and auction["seller"] != username
+            )
+        return result
 
     if action == "list_item":
         if role != "seller":
@@ -26,26 +42,27 @@ def handle_action(username, role, action, data):
 
         name = data.get("name")
         price = data.get("price")
+
         if not isinstance(name, str) or not name.strip():
             return "Enter an item name."
         if type(price) is not int or not 0 <= price <= 2_147_483_647:
-            return "Enter a valid starting price."
+            return "Enter a valid whole-peso starting price."
 
         return create_listing(username, name.strip(), price)
 
     if action == "bid":
-        if role != "bidder":
-            return "Denied. Only bidders can place bids."
+        if role not in ("bidder", "seller"):
+            return "Denied. Only bidders and sellers can place bids."
 
-        number = data.get("auction_id")
+        auction_id = data.get("auction_id")
         amount = data.get("amount")
-        if any(type(n) is not int or not 1 <= n <= 2_147_483_647
-               for n in (number, amount)):
-            return "Enter a positive auction number and whole-peso bid."
 
-        result = place_bid(number, username, amount)
-        # Supports either version of place_bid from our earlier steps.
-        return result
+        for value in (auction_id, amount):
+            if type(value) is not int or not 1 <= value <= 2_147_483_647:
+                return "Enter a positive auction number and whole-peso bid."
+
+        # place_bid checks the listing's owner, deadline, and current price.
+        return place_bid(auction_id, username, amount)
 
     if action == "monitor":
         if role != "admin":
@@ -55,12 +72,28 @@ def handle_action(username, role, action, data):
     if action == "result":
         return all_results()
 
-  
+    return "Unknown action."
 
 
 class AuctionServer(BanyanBase):
+    def __init__(self, backplane_ip):
+        super().__init__(back_plane_ip_address=backplane_ip)
+        self.recent_requests = {}
+        self.next_deadline_check = 0.0
+        self.receive_loop_idle_addition = self.check_deadlines
+        self.set_subscriber_topic("auction.request")
+
+    def check_deadlines(self):
+        now = time.monotonic()
+        if now < self.next_deadline_check:
+            return
+
+        self.next_deadline_check = now + 1
+        for event in close_due_auctions():
+            self.publish_payload(event, "auction.events")
+
     def incoming_message_processing(self, topic, payload):
-        if not isinstance(payload, dict):
+        if topic != "auction.request" or not isinstance(payload, dict):
             return
 
         request = payload.get("request")
@@ -71,69 +104,77 @@ class AuctionServer(BanyanBase):
         request_id = request.get("id")
         if not isinstance(request_id, str) or len(request_id) != 32:
             return
-        if any(c not in "0123456789abcdef" for c in request_id):
+        if any(char not in "0123456789abcdef" for char in request_id):
             return
 
-        message = "Login failed. Check your username and login key."
+        # Also check while clients are active so deadlines get processed
+        # even when requests keep arriving.
+        self.check_deadlines()
+
+        reply_topic = "auction.reply." + request_id
         username = request.get("username")
         account = find_account(username) if isinstance(username, str) else None
+
+        if account is None:
+            self.publish_payload(
+                {"message": "Login failed. Check your username and login key."},
+                reply_topic,
+            )
+            return
+
+        role, key = account
+        raw = json.dumps(request, sort_keys=True).encode()
+        expected = hmac.new(key.encode(), raw, hashlib.sha256).hexdigest()
+
+        if not signature.isascii() or not hmac.compare_digest(expected, signature):
+            self.publish_payload(
+                {"message": "Login failed. Check your username and login key."},
+                reply_topic,
+            )
+            return
+
         now = int(time.time())
+        timestamp = request.get("time")
+        if type(timestamp) is not int or abs(now - timestamp) > 60:
+            self.publish_payload(
+                {"message": "Request expired. Check both computers' clocks."},
+                reply_topic,
+            )
+            return
 
-        if account:
-            role, key = account
-            raw = json.dumps(request, sort_keys=True).encode()
-            expected = hmac.new(key.encode(), raw, hashlib.sha256).hexdigest()
-            timestamp = request.get("time")
+        data = request.get("data")
+        if not isinstance(data, dict):
+            self.publish_payload({"message": "Invalid request data."}, reply_topic)
+            return
 
-            if hmac.compare_digest(expected, signature.encode().hex()
-                                   if not signature.isascii() else signature):
-                if type(timestamp) is not int or abs(now - timestamp) > 60:
-                    message = "Request expired. Check both computers' clocks."
-                elif request_id in self.recent_requests:
-                    return
-                elif isinstance(request.get("data"), dict):
-                    self.recent_requests = {
-                        rid: expiry for rid, expiry in self.recent_requests.items()
-                        if expiry >= now
-                    }
-                    self.recent_requests[request_id] = timestamp + 60
-                    message = handle_action(
-                        username, role, request.get("action"), request["data"]
-                    )
+        self.recent_requests = {
+            rid: expires
+            for rid, expires in self.recent_requests.items()
+            if expires >= now
+        }
+        if request_id in self.recent_requests:
+            return
+        self.recent_requests[request_id] = timestamp + 60
 
-        if isinstance(message, dict):
-            if message.get("accepted"):
-                self.publish_payload(
-                    {"event": "bid_accepted", **message},
-                    "auction.events"
-                )
-            message = message["message"]
+        result = handle_action(username, role, request.get("action"), data)
+        reply = result if isinstance(result, dict) else {"message": result}
 
-        self.publish_payload({"message": message}, "auction.reply." + request_id)
-prepare_database()
-prepare_accounts()
-prepare_closing()
+        if reply.get("accepted"):
+            self.publish_payload(
+                {**reply, "event": "bid_accepted"}, "auction.events"
+            )
+        elif reply.get("event") == "listed":
+            self.publish_payload(reply, "auction.events")
 
-backplane_ip = input("Backplane IP: ").strip()
-server = AuctionServer(back_plane_ip_address=backplane_ip)
-server.recent_requests = {}
-server.set_subscriber_topic("auction.request")
-
-next_deadline_check = 0.0
+        self.publish_payload(reply, reply_topic)
 
 
-def check_deadlines():
-    global next_deadline_check
+if __name__ == "__main__":
+    prepare_database()
+    prepare_accounts()
+    prepare_closing()
 
-    now = time.monotonic()
-    if now < next_deadline_check:
-        return
-
-    next_deadline_check = now + 1
-    for event in close_due_auctions():
-        server.publish_payload(event, "auction.events")
-
-
-server.receive_loop_idle_addition = check_deadlines
-print("Auction server ready.")
-server.receive_loop()
+    backplane_ip = input("Backplane IP: ").strip()
+    server = AuctionServer(backplane_ip)
+    print("Auction server ready.")
+    server.receive_loop()

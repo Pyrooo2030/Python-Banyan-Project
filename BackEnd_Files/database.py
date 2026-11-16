@@ -181,7 +181,7 @@ def browse_items():
     with sqlite3.connect(DB_FILE) as db:
         rows = db.execute("""
             SELECT a.id, a.item_name, a.seller, a.closes_at,
-                   COALESCE(b.amount, a.starting_price), b.bidder
+                   a.starting_price, b.amount, b.bidder
             FROM auctions AS a
             LEFT JOIN bids AS b ON b.id = (
                 SELECT id FROM bids
@@ -194,18 +194,35 @@ def browse_items():
             ORDER BY a.closes_at IS NULL, a.closes_at, a.id
         """, (now,)).fetchall()
 
-    if not rows:
-        return "No auctions are open right now."
+    auctions = []
+    lines = []
 
-    lines = ["OPEN AUCTIONS | Soonest to close first"]
-    for number, name, seller, deadline, price, leader in rows:
+    for auction_id, name, seller, deadline, starting_price, top_bid, leader in rows:
+        current_price = starting_price if top_bid is None else top_bid
+
+        auctions.append({
+            "auction_id": auction_id,
+            "item_name": name,
+            "seller": seller,
+            "starting_price": starting_price,
+            "current_price": current_price,
+            "has_bids": top_bid is not None,
+            "next_minimum": current_price + 1,
+            "closes_at": deadline,
+            "leader": leader,
+        })
+
         remaining = "No deadline" if deadline is None else f"{deadline - now}s left"
         lines.append(
-            f"#{number} {name} | Seller: {seller or 'Unassigned'} | "
-            f"{price} pesos | Leader: {leader or 'No bids yet'} | {remaining}"
+            f"#{auction_id} {name} | Seller: {seller or 'Unassigned'} | "
+            f"{current_price} pesos | Leader: {leader or 'No bids yet'} | {remaining}"
         )
 
-    return "\n".join(lines)
+    return {
+        "message": "\n".join(lines) or "No auctions are open right now.",
+        "auctions": auctions,
+        "server_time": now,
+    }
 
 
 def list_auctions():
